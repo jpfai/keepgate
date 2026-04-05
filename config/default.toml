@@ -1,0 +1,14 @@
+[classifier]
+default_sensitivity = "private"
+
+[output_gate]
+block_secret_to_message = true
+block_secret_to_api = true
+require_approval_for = ["secret"]
+
+[approvals]
+mode = "auto_approve"  # "auto_approve" | "manual" | "deny_by_default"
+
+[leak_detection]
+enabled = true
+confidence_threshold = 0.7

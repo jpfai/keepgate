@@ -1,0 +1,18 @@
+[package]
+name = "keepgate"
+version = "0.1.0"
+edition = "2021"
+description = "KeepGate — Data protection layer for the IGNIS ecosystem"
+license = "MIT"
+
+[dependencies]
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+thiserror = "1"
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
