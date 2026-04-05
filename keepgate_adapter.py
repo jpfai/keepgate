@@ -1,17 +1,40 @@
 """
 keepgate_adapter.py — Adaptateur minimal KeepGate pour IGNIS.
 
+═══════════════════════════════════════════════════════════════════════════
+DOCTRINE V1 — Lire avant d'utiliser
+═══════════════════════════════════════════════════════════════════════════
+
+1. DÉFAUT = BLOCAGE STRICT
+   - safe_output() avec allow_redact=False (défaut) BLOQUE si secret détecté.
+   - C'est le comportement attendu et souhaité.
+
+2. REDACTION = OPTION EXPLICITE
+   - redact_if_needed() ou safe_output(allow_redact=True) ne doivent être
+     utilisés que sur un chemin explicitement autorisé.
+   - Ne jamais redacter "par commodité".
+
+3. CET ADAPTATEUR NE DÉCIDE PAS
+   - Il exécute la politique KeepGate.
+   - La politique (deny-all, auto-approve) est définie côté KeepGate Rust.
+   - L'adaptateur ne contient pas de logique métier de sécurité.
+
+4. POINT D'INJECTION UNIQUE
+   - safe_output() s'utilise AU POINT TERMINAL de sortie/exécution.
+   - Ailleurs (analyse, logs internes), préférer les fonctions explicites.
+
+═══════════════════════════════════════════════════════════════════════════
+
 Usage dans ignis_exec_runner.py :
-    from keepgate_adapter import check_output, redact_if_needed
+
+    from keepgate_adapter import safe_output, ExecutionBlocked
 
     # Avant toute exécution de sortie :
-    result = check_output(action_output)
-    if result.blocked:
-        log.warning(f"Sortie bloquée: {result.reason}")
-        # Option 1 : blocage strict
-        raise ExecutionBlocked(result.reason)
-        # Option 2 : redaction explicite (si chemin autorisé)
-        # cleaned = redact_if_needed(action_output)
+    try:
+        output = safe_output(action_output)  # Mode strict par défaut
+    except ExecutionBlocked as e:
+        log.warning(f"Sortie bloquée: {e}")
+        return {"status": "blocked", "reason": str(e)}
 
 Ce module encapsule l'appel CLI KeepGate.
 Le contrat canonique reste CONTRACT_V1.md.
@@ -210,18 +233,38 @@ def redact_if_needed(data: str) -> str:
 # ---------------------------------------------------------------------------
 
 class ExecutionBlocked(Exception):
-    """Exception levée quand une sortie est bloquée par KeepGate."""
-    pass
+    """
+    Exception levée quand une sortie est bloquée par KeepGate.
+    
+    Attributs :
+        reason : Raison normalisée du blocage.
+        sensitivity : Sensibilité détectée (secret/private/etc.)
+    """
+    def __init__(self, reason: str, sensitivity: str = "unknown"):
+        self.reason = reason
+        self.sensitivity = sensitivity
+        super().__init__(f"blocked_by_keepgate: {reason}")
+    
+    def to_dict(self) -> dict:
+        """Format sérialisable pour logging/retour API."""
+        return {
+            "status": "blocked_by_keepgate",
+            "reason": self.reason,
+            "sensitivity": self.sensitivity,
+        }
 
 
 def safe_output(data: str, allow_redact: bool = False) -> str:
     """
     Contrôle de sortie pour ignis_exec_runner.py.
     
+    DOCTRINE : défaut = blocage strict. Ne redacter que si allow_redact=True
+    explicitement (chemin autorisé).
+    
     Args:
         data: Les données de sortie de l'action.
         allow_redact: Si True, redacte automatiquement si bloqué.
-                      Si False, lève ExecutionBlocked (default).
+                      Si False (DÉFAUT), lève ExecutionBlocked.
     
     Returns:
         Les données (inchangées si autorisées, ou redactées si allow_redact=True).
@@ -235,7 +278,10 @@ def safe_output(data: str, allow_redact: bool = False) -> str:
         if allow_redact:
             return redact_if_needed(data)
         else:
-            raise ExecutionBlocked(result.reason)
+            raise ExecutionBlocked(
+                reason=result.reason or "secret_detected",
+                sensitivity=result.sensitivity,
+            )
     
     return data
 
